@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>KrakenD config editor</title>
+<meta name="description" content="Paste a KrakenD JSON config, edit a service by its base URL, or copy a service and change only the name and host.">
+<style>
+  :root {
+    --bg: #eef1f5;
+    --panel: #fff;
+    --ink: #1b2430;
+    --muted: #5c6b7a;
+    --line: #d8e0e8;
+    --side: #152033;
+    --side-ink: #e7eef6;
+    --side-muted: #93a3b5;
+    --accent: #2f6fed;
+    --add: #157a45;
+    --del: #b42318;
+    --mod: #9a6700;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  button:hover { border-color: #b7c3d0; }
+  button.primary { background: var(--accent); color: #fff; border-color: transparent; }
+  button.danger { color: var(--del); }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+  header.top {
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header.top strong { font-size: 15px; letter-spacing: -.02em; }
+  #stats { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  #q { flex: 1; max-width: 440px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: var(--bg); }
+  .grow { flex: 1; }
+  #diffBtn.has-changes { border-color: #e7d7a8; background: #fff8e8; }
+  #diffCount {
+    display: inline-block; min-width: 1.2em; text-align: center;
+    background: var(--side); color: #fff; border-radius: 999px; font-size: 12px; padding: 0 5px;
+  }
+  #diffBtn.has-changes #diffCount { background: var(--mod); }
+  #status {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--side); color: #fff; padding: 8px 14px; border-radius: 8px;
+    z-index: 30; margin: 0;
+  }
+  #status:empty { display: none; }
+  #status.error { background: var(--del); }
+  .app { height: calc(100vh - 52px); display: grid; grid-template-columns: 280px minmax(0, 1fr); }
+  .side { background: var(--side); color: var(--side-ink); display: flex; flex-direction: column; min-height: 0; }
+  .side-h { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 6px; color: var(--side-muted); font-size: 12px; }
+  .side-h label { display: flex; gap: 6px; align-items: center; }
+  #svcList { overflow: auto; flex: 1; padding: 4px 8px 12px; }
+  .svc {
+    display: block; width: 100%; text-align: left; background: transparent; color: inherit;
+    border: 0; border-radius: 8px; padding: 8px 10px; margin: 0;
+  }
+  .svc small { display: block; color: var(--side-muted); font-size: 12px; margin-top: 2px; }
+  .svc.active { background: #24344c; }
+  .svc .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #e6b450; margin-right: 6px; vertical-align: 1px; }
+  .side-foot { padding: 10px 12px 14px; border-top: 1px solid #2a3b52; }
+  .side-foot p { margin: 0 0 8px; color: var(--side-muted); font-size: 12px; }
+  .side-foot button { background: transparent; color: var(--side-ink); border-color: #3a4d66; }
+  .work { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .head, .url-box, .bulk-line, .add-end { padding: 12px 16px 0; }
+  .head { display: flex; align-items: flex-start; gap: 12px; }
+  .head h2 { margin: 0; font-size: 16px; letter-spacing: -.02em; overflow-wrap: anywhere; }
+  .head p { margin: 2px 0 0; color: var(--muted); }
+  .head button { margin-left: auto; flex-shrink: 0; }
+  .url-box { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+  .url-box label, .field { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+  .url-box input, .bulk-line input, .add-end input, .more input, .more textarea, .more select, dialog input, dialog select, dialog textarea {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff;
+  }
+  .url-box input { font: 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace; }
+  #urlNote { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 12px; }
+  #urlChoices { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+  #urlChoices:empty { display: none; }
+  .url-chip { background: #eef3fb; border-color: #d5e2f5; font: 12px/1 ui-monospace, "SF Mono", Menlo, monospace; }
+  .bulk-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; padding-bottom: 8px; }
+  .bulk-line input { width: 92px; padding: 6px 8px; }
+  .bulk-line details { margin-left: auto; }
+  .bulk-line details summary { cursor: pointer; }
+  .rename { display: flex; gap: 8px; margin-top: 8px; }
+  .rename input { width: 280px; }
+  #main { flex: 1; overflow: auto; min-height: 0; padding: 0 8px 8px 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { position: sticky; top: 0; background: var(--bg); text-align: left; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 8px 6px; z-index: 1; }
+  td { padding: 4px 6px; border-top: 1px solid var(--line); vertical-align: middle; }
+  td input, td select {
+    width: 100%; border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 6px;
+  }
+  td input:hover, td select:hover { border-color: var(--line); }
+  td input:focus, td select:focus { background: #fff; border-color: var(--accent); outline: none; }
+  td.log input { width: auto; }
+  .endpoint input { font: 13px/1.3 ui-monospace, "SF Mono", Menlo, monospace; }
+  .num { width: 76px; }
+  .tiny { width: 88px; }
+  .log { width: 44px; text-align: center; }
+  .ops { width: 168px; white-space: nowrap; text-align: right; }
+  .ops button { padding: 4px 7px; background: transparent; }
+  tr.is-new td:first-child { box-shadow: inset 3px 0 0 var(--add); }
+  tr.is-dirty td:first-child { box-shadow: inset 3px 0 0 var(--mod); }
+  tr.detail td { background: #f6f8fb; }
+  .more { display: grid; gap: 8px; padding: 8px 4px 10px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 8px 14px; color: var(--ink); }
+  .checks label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+  .add-end { display: flex; gap: 8px; align-items: center; padding-bottom: 16px; }
+  .add-end .prefix { color: var(--muted); font: 13px/1.3 ui-monospace, "SF Mono", Menlo, monospace; }
+  .add-end input { flex: 1; font: 13px/1.3 ui-monospace, "SF Mono", Menlo, monospace; }
+  #dupes { margin: 0 16px 12px; color: var(--del); }
+  #dupes:empty, #empty[hidden], #work[hidden] { display: none; }
+  #empty { padding: 48px 24px; color: var(--muted); }
+  #backdrop { position: fixed; inset: 0; background: rgba(21, 32, 51, .35); z-index: 10; }
+  #backdrop[hidden] { display: none; }
+  #drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%);
+    background: #fff; z-index: 11; display: flex; flex-direction: column;
+    border-left: 1px solid var(--line); box-shadow: -8px 0 24px rgba(21, 32, 51, .08);
+  }
+  #drawer[hidden] { display: none; }
+  .out-h { display: flex; gap: 6px; align-items: center; padding: 10px; border-bottom: 1px solid var(--line); }
+  .tab[aria-selected="true"] { background: #e8f0ff; border-color: transparent; color: var(--accent); font-weight: 600; }
+  .spacer { flex: 1; }
+  #diff, #json { margin: 0; padding: 12px 14px; overflow: auto; flex: 1; min-height: 0; }
+  #json { font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre; }
+  .diff-sum { margin: 0 0 8px; font-weight: 600; }
+  #diff h3 { margin: 14px 0 6px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  #diff article { padding: 6px 0; border-top: 1px solid var(--line); }
+  #diff button { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; text-align: left; }
+  #diff ul { margin: 4px 0 0; padding-left: 18px; }
+  #diff code, #diff ins, #diff del { font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+  #diff ins { text-decoration: none; background: #e5f6ea; color: var(--add); }
+  #diff del { text-decoration: none; background: #fdecea; color: var(--del); }
+  .muted { color: var(--muted); }
+  dialog { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: #fff; color: var(--ink); }
+  dialog::backdrop { background: rgba(21, 32, 51, .45); }
+  dialog h2 { margin: 0 0 6px; font-size: 18px; }
+  dialog p { margin: 0 0 10px; color: var(--muted); }
+  #loader { width: min(920px, 96vw); }
+  #loader textarea { height: min(52vh, 520px); }
+  #copyDlg { width: min(560px, 96vw); }
+  #copyPreview {
+    margin: 0; padding: 10px; background: var(--bg); border-radius: 8px; max-height: 180px; overflow: auto;
+    font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap;
+  }
+  .dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  #loadError { color: var(--del); min-height: 1.2em; }
+  .checkline { display: flex; align-items: center; gap: 6px; }
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    .app { height: auto; grid-template-columns: 1fr; }
+    .side { max-height: 40vh; }
+    #main { max-height: 60vh; }
+    .grid-2 { grid-template-columns: 1fr; }
+    header.top { height: auto; flex-wrap: wrap; padding: 8px; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <strong>KrakenD</strong>
+  <span id="stats">Paste a config to start.</span>
+  <label class="sr" for="q">Search services</label>
+  <input id="q" type="search" placeholder="Find a service, path, or server" title="Press / to focus" spellcheck="false" autocomplete="off" hidden>
+  <span class="grow"></span>
+  <button type="button" id="diffBtn" hidden>Diff <span id="diffCount">0</span></button>
+  <button type="button" class="primary" id="copyConfigBtn" data-copy="json" hidden>Copy config</button>
+  <button type="button" id="downloadBtn" hidden>Download</button>
+  <button type="button" id="replaceBtn">Replace JSON</button>
+</header>
+<p id="status" role="status"></p>
+<div class="app" id="app" hidden>
+  <aside class="side">
+    <div class="side-h">
+      <span>Services</span>
+      <label><input id="changedOnly" type="checkbox"> Changed</label>
+    </div>
+    <div id="svcList"></div>
+    <div class="side-foot">
+      <p id="blurb"></p>
+      <button type="button" id="configOpen">Gateway config</button>
+    </div>
+  </aside>
+  <section class="work">
+    <p id="empty">Choose a service.</p>
+    <div id="work">
+      <div class="head">
+        <div>
+          <h2 id="svcTitle"></h2>
+          <p id="svcCount"></p>
+        </div>
+        <button type="button" id="copyBtn">Copy as new service</button>
+      </div>
+      <div class="url-box">
+        <label>Base URL
+          <input id="urlInput" spellcheck="false" autocomplete="off" placeholder="http://service.ns.svc.cluster.local">
+        </label>
+        <button type="button" id="applyUrl">Apply URL</button>
+        <p id="urlNote"></p>
+        <div id="urlChoices"></div>
+      </div>
+      <div class="bulk-line">
+        <span>Set on every route</span>
+        <input id="allTimeout" spellcheck="false" placeholder="timeout" aria-label="Timeout for every route">
+        <input id="allLimit" inputmode="numeric" placeholder="limit" aria-label="Limit for every route">
+        <input id="allInterval" spellcheck="false" placeholder="interval" aria-label="Interval for every route">
+        <input id="allBurst" inputmode="numeric" placeholder="burst" aria-label="Burst for every route">
+        <button type="button" id="applyAll">Apply</button>
+        <details>
+          <summary>Rename service</summary>
+          <div class="rename">
+            <input id="renameInput" spellcheck="false" aria-label="New service name">
+            <button type="button" id="renameBtn">Rename</button>
+          </div>
+        </details>
+      </div>
+      <div id="main">
+        <table>
+          <thead>
+            <tr>
+              <th>Endpoint</th>
+              <th>Method</th>
+              <th>Timeout</th>
+              <th>Limit</th>
+              <th>Every</th>
+              <th>Burst</th>
+              <th>Log</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="add-end">
+        <span class="prefix" id="addPrefix">/</span>
+        <input id="newSuffix" spellcheck="false" placeholder="booking" aria-label="New endpoint">
+        <button type="button" class="primary" id="addEndpoint">Add endpoint</button>
+      </div>
+      <p id="dupes"></p>
+    </div>
+  </section>
+</div>
+<div id="backdrop" hidden></div>
+<aside id="drawer" hidden aria-label="Diff and config">
+  <div class="out-h">
+    <button type="button" class="tab" data-tab="diff" aria-selected="true">Diff</button>
+    <button type="button" class="tab" data-tab="json" aria-selected="false">Config</button>
+    <span class="spacer"></span>
+    <button type="button" data-copy="diff">Copy diff</button>
+    <button type="button" id="revertBtn">Revert</button>
+    <button type="button" id="baselineBtn">Set baseline</button>
+    <button type="button" id="drawerClose">Close</button>
+  </div>
+  <div id="diff"></div>
+  <pre id="json" hidden></pre>
+</aside>
+<dialog id="copyDlg" aria-labelledby="copyTitle">
+  <h2 id="copyTitle">Copy a service</h2>
+  <p>Routes, timeouts, rate limits, auth, and headers are copied. Change the service name and the base URL — the URL starts as the one this service already uses.</p>
+  <div class="field">Copy from
+    <select id="copyFrom"></select>
+  </div>
+  <div class="field" style="margin-top:8px">New service name
+    <input id="copyName" spellcheck="false" autocomplete="off">
+  </div>
+  <div class="field" style="margin-top:8px">Base URL
+    <input id="copyUrl" spellcheck="false" autocomplete="off">
+  </div>
+  <pre id="copyPreview"></pre>
+  <div class="dialog-actions">
+    <button type="button" class="primary" id="copyCreate">Add routes</button>
+    <button type="button" id="copyCancel">Cancel</button>
+  </div>
+</dialog>
+<dialog id="configDlg" aria-labelledby="configTitle">
+  <h2 id="configTitle">Gateway config</h2>
+  <p>This is the top-level <code>config</code> object. Route edits stay in the table.</p>
+  <textarea id="configTa" spellcheck="false" aria-label="Gateway config JSON"></textarea>
+  <div class="dialog-actions"><button type="button" class="primary" id="applyConfig">Apply config JSON</button></div>
+  <details id="extrasDetails" hidden>
+    <summary>Other top-level keys</summary>
+    <textarea id="extrasTa" spellcheck="false" aria-label="Other top-level JSON"></textarea>
+    <div class="dialog-actions"><button type="button" id="applyExtras">Apply other keys</button></div>
+  </details>
+</dialog>
+<dialog id="loader" aria-labelledby="loaderTitle">
+  <h2 id="loaderTitle">Paste KrakenD JSON</h2>
+  <p>Drop a file or paste the config. It stays in this browser. A session is kept in localStorage on this machine.</p>
+  <textarea id="paste" spellcheck="false" placeholder='{ "config": { "prefix": "/krakend-gateway" }, "routes": [ { "path": "/service/booking", "methods": ["POST"], "listOfServers": ["http://service.local"], "timeout": "140s" } ] }'></textarea>
+  <p id="loadError"></p>
+  <div class="dialog-actions">
+    <button type="button" class="primary" id="loadBtn">Load config</button>
+    <button type="button" id="sampleBtn">Try sample</button>
+    <button type="button" id="restoreBtn" hidden>Continue last session</button>
+    <label class="checkline">Open file <input id="file" type="file" accept=".json,.yaml,.yml,application/json,text/yaml"></label>
+    <button type="button" id="forgetBtn">Forget saved session</button>
+    <button type="button" id="closeLoader">Close</button>
+  </div>
+</dialog>
+<script>
+const SESSION_KEY = 'krakend-editor-session-v1';
+const DEFAULT_ROUTE = {
+  methods: ['POST'],
+  listOfServers: [],
+  log: true,
+  rateLimit: { limit: 100, refreshInterval: '1m', burst: 1 },
+  timeout: '140s',
+  auth: { ignoreAuthenticationException: true, authentication: false },
+  mandatoryRequest: { setMandatoryHeader: false, injectMicroserviceHeader: false }
+};
+const SAMPLE = {
+  config: {
+    prefix: '/krakend-gateway',
+    active_plugins: ['auth-plugin', 'ratelimit-plugin'],
+    rate_limit: 'custom'
+  },
+  routes: [
+    route('/tix-flight-sabre-gds-integrator/booking', 'http://flight-sabre.ns.svc.cluster.local', '140s', 100, 1),
+    route('/tix-flight-sabre-gds-integrator/v2/search', 'http://flight-sabre.ns.svc.cluster.local', '140s', 1000, 100, true),
+    route('/tix-flight-lion-vedaleon-integrator/booking', 'http://flight-lion.ns.svc.cluster.local', '140s', 100, 1),
+    Object.assign(route('/tix-flight-firefly-integrator-go/booking', 'http://flight-firefly-go.ns.svc.cluster.local', '140s', 100, 1), {
+      log: false,
+      mandatoryRequest: { setMandatoryHeader: false, injectMicroserviceHeader: false, ignoredHeader: ['Cookie'] }
+    })
+  ]
+};
+
+function route(path, server, timeout, limit, burst, headers) {
+  return {
+    path,
+    methods: ['POST'],
+    listOfServers: [server],
+    log: true,
+    rateLimit: { limit, refreshInterval: '1m', burst },
+    timeout,
+    auth: { ignoreAuthenticationException: true, authentication: false },
+    mandatoryRequest: { setMandatoryHeader: !!headers, injectMicroserviceHeader: !!headers }
+  };
+}
+
+let nextId = 1;
+let baselineState = null;
+let current = null;
+let selectedService = '';
+let latestText = '';
+let latestDiffText = '';
+let lastRaw = '';
+let persistWarned = false;
+let persistTimer = 0;
+const openIds = new Set();
+const els = {};
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function serviceOf(path) {
+  const part = String(path || '').split('/').filter(Boolean)[0];
+  return part || '(no service)';
+}
+
+function suffixOf(path, service) {
+  const value = String(path || '');
+  const prefix = '/' + service + '/';
+  if (value.startsWith(prefix)) return value.slice(prefix.length);
+  if (value === '/' + service) return '';
+  return value;
+}
+
+function hostOf(url) {
+  try { return new URL(url).host; }
+  catch { return url || ''; }
+}
+
+function shortHost(url) {
+  const host = hostOf(url);
+  return host ? host.split('.')[0] : 'no server';
+}
+
+function matches(routeObj, q) {
+  if (!q) return true;
+  const blob = [
+    routeObj.path, serviceOf(routeObj.path),
+    ...(routeObj.methods || []), ...(routeObj.listOfServers || []), routeObj.timeout
+  ].join('\n').toLowerCase();
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every((part) => blob.includes(part));
+}
+
+function rewriteRoute(routeObj, fromService, toService, url) {
+  const route = structuredClone(routeObj);
+  const parts = String(route.path || '').split('/');
+  const idx = parts.findIndex(Boolean);
+  if (idx >= 0 && parts[idx] === fromService) parts[idx] = toService;
+  else if (idx < 0) parts.push(toService);
+  route.path = parts.join('/');
+  if (!route.path.startsWith('/')) route.path = '/' + route.path;
+  if (url) route.listOfServers = [url];
+  return route;
+}
+
+function flatten(value, prefix, out) {
+  if (Array.isArray(value) || !value || typeof value !== 'object') {
+    out.set(prefix, JSON.stringify(value));
+    return;
+  }
+  const keys = Object.keys(value).sort();
+  if (!keys.length) {
+    if (prefix) out.set(prefix, '{}');
+    return;
+  }
+  for (const key of keys) flatten(value[key], prefix ? prefix + '.' + key : key, out);
+}
+
+function fieldDiff(a, b) {
+  const left = new Map();
+  const right = new Map();
+  flatten(a, '', left);
+  flatten(b, '', right);
+  const keys = [...new Set([...left.keys(), ...right.keys()])].sort();
+  const out = [];
+  for (const key of keys) {
+    const hasL = left.has(key);
+    const hasR = right.has(key);
+    if (hasL && hasR && left.get(key) === right.get(key)) continue;
+    out.push({ key, from: hasL ? left.get(key) : undefined, to: hasR ? right.get(key) : undefined });
+  }
+  return out;
+}
+
+function cloneState(state) {
+  return {
+    keyOrder: state.keyOrder.slice(),
+    extras: structuredClone(state.extras),
+    config: structuredClone(state.config),
+    routes: state.routes.map((wrap) => ({ id: wrap.id, route: structuredClone(wrap.route) }))
+  };
+}
+
+function buildExport(state) {
+  const out = {};
+  for (const key of state.keyOrder) {
+    if (key === 'routes') out.routes = state.routes.map((wrap) => wrap.route);
+    else if (key === 'config') out.config = state.config;
+    else out[key] = state.extras[key];
+  }
+  return out;
+}
+
+function routeLabel(routeObj) {
+  const methods = (routeObj.methods || []).join(',') || 'ANY';
+  return methods + ' ' + (routeObj.path || '(no path)');
+}
+
+function computeChanges() {
+  const empty = { config: [], extras: [], added: [], removed: [], modified: [] };
+  if (!baselineState || !current) return empty;
+  const baseIds = new Map(baselineState.routes.map((wrap) => [wrap.id, wrap]));
+  const curIds = new Set(current.routes.map((wrap) => wrap.id));
+  const added = [];
+  const removed = [];
+  const modified = [];
+  for (const wrap of current.routes) {
+    const prev = baseIds.get(wrap.id);
+    if (!prev) added.push(wrap);
+    else {
+      const changes = fieldDiff(prev.route, wrap.route);
+      if (changes.length) modified.push({ id: wrap.id, route: wrap.route, changes });
+    }
+  }
+  for (const wrap of baselineState.routes) {
+    if (!curIds.has(wrap.id)) removed.push(wrap);
+  }
+  return {
+    config: fieldDiff(baselineState.config, current.config),
+    extras: fieldDiff(baselineState.extras, current.extras),
+    added, removed, modified
+  };
+}
+
+function fmtChange(ch) {
+  if (ch.from === undefined) return '+ ' + ch.key + ': ' + ch.to;
+  if (ch.to === undefined) return '- ' + ch.key + ': ' + ch.from;
+  return '~ ' + ch.key + ': ' + ch.from + ' → ' + ch.to;
+}
+
+function changeHTML(ch) {
+  const key = '<code>' + esc(ch.key) + '</code> ';
+  if (ch.from === undefined) return key + '<ins>' + esc(ch.to) + '</ins>';
+  if (ch.to === undefined) return key + '<del>' + esc(ch.from) + '</del>';
+  return key + '<del>' + esc(ch.from) + '</del> <ins>' + esc(ch.to) + '</ins>';
+}
+
+function buildDiff() {
+  const changes = computeChanges();
+  const text = [];
+  const html = [];
+  const configN = changes.config.length + changes.extras.length;
+  const sum = configN + ' config · ' + changes.added.length + ' added · ' + changes.removed.length + ' removed · ' + changes.modified.length + ' modified';
+  text.push(sum);
+  html.push('<p class="diff-sum">' + esc(sum) + '</p>');
+  const total = configN + changes.added.length + changes.removed.length + changes.modified.length;
+  if (!total) {
+    text.push('No changes.');
+    html.push('<p class="muted">No changes yet. Edits are compared with the config you loaded.</p>');
+    return { html: html.join(''), text: text.join('\n'), changes };
+  }
+  const section = (title, lines, blocks) => {
+    if (!lines.length) return;
+    text.push('', title, ...lines);
+    html.push('<h3>' + esc(title) + '</h3>', ...blocks);
+  };
+  section('Config', changes.config.map(fmtChange), changes.config.map((ch) => '<div>' + changeHTML(ch) + '</div>'));
+  section('Other keys', changes.extras.map(fmtChange), changes.extras.map((ch) => '<div>' + changeHTML(ch) + '</div>'));
+  section(
+    'Added',
+    changes.added.map((wrap) => routeLabel(wrap.route)),
+    changes.added.map((wrap) => '<article><button type="button" data-goto="' + wrap.id + '">' + esc(routeLabel(wrap.route)) + '</button></article>')
+  );
+  section(
+    'Removed',
+    changes.removed.map((wrap) => routeLabel(wrap.route)),
+    changes.removed.map((wrap) => '<article>' + esc(routeLabel(wrap.route)) + '</article>')
+  );
+  const modLines = [];
+  const modHtml = [];
+  for (const item of changes.modified) {
+    modLines.push(routeLabel(item.route));
+    modHtml.push('<article><button type="button" data-goto="' + item.id + '">' + esc(routeLabel(item.route)) + '</button><ul>');
+    for (const ch of item.changes) {
+      modLines.push('  ' + fmtChange(ch));
+      modHtml.push('<li>' + changeHTML(ch) + '</li>');
+    }
+    modHtml.push('</ul></article>');
+  }
+  section('Modified', modLines, modHtml);
+  return { html: html.join(''), text: text.join('\n'), changes };
+}
+
+function duplicateKeys(routes) {
+  const seen = new Map();
+  for (const routeObj of routes) {
+    const key = (routeObj.path || '') + '|' + [...(routeObj.methods || [])].sort().join(',');
+    seen.set(key, (seen.get(key) || 0) + 1);
+  }
+  return [...seen].filter(([, n]) => n > 1).map(([key]) => key);
+}
+
+function parseConfig(text) {
+  const cleaned = String(text || '').replace(/^\uFEFF/, '').trim();
+  if (!cleaned) throw new Error('Paste a config first.');
+  if (cleaned[0] !== '{' && cleaned[0] !== '[') {
+    throw new Error('Paste JSON. This looks like YAML — convert the same data to JSON and paste it again.');
+  }
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    try {
+      return JSON.parse(cleaned.replace(/,\s*([}\]])/g, '$1'));
+    } catch {
+      const match = String(err.message).match(/position (\d+)/);
+      if (!match) throw err;
+      const at = Number(match[1]);
+      const near = cleaned.slice(Math.max(0, at - 40), at + 40).replace(/\s+/g, ' ');
+      throw new Error(err.message + '. Near: ' + near);
+    }
+  }
+}
+
+function ingest(data) {
+  if (Array.isArray(data)) data = { routes: data };
+  if (!data || typeof data !== 'object') throw new Error('Config must be a JSON object.');
+  if (!Array.isArray(data.routes)) throw new Error('Config needs a routes array.');
+  data.routes.forEach((routeObj, i) => {
+    if (!routeObj || typeof routeObj !== 'object' || Array.isArray(routeObj)) {
+      throw new Error('Route ' + (i + 1) + ' must be a JSON object.');
+    }
+  });
+  const keyOrder = Object.keys(data);
+  if (!keyOrder.includes('config')) keyOrder.unshift('config');
+  if (!keyOrder.includes('routes')) keyOrder.push('routes');
+  const extras = {};
+  for (const key of keyOrder) {
+    if (key !== 'routes' && key !== 'config') extras[key] = structuredClone(data[key]);
+  }
+  return {
+    keyOrder,
+    extras,
+    config: structuredClone(data.config || {}),
+    routes: data.routes.map((routeObj) => ({ id: nextId++, route: structuredClone(routeObj) }))
+  };
+}
+
+function serviceGroups() {
+  const map = new Map();
+  for (const wrap of current.routes) {
+    const name = serviceOf(wrap.route.path);
+    if (!map.has(name)) map.set(name, []);
+    map.get(name).push(wrap);
+  }
+  return map;
+}
+
+function distinctUrls(wraps) {
+  const seen = [];
+  for (const wrap of wraps) {
+    for (const url of wrap.route.listOfServers || []) {
+      if (url && !seen.includes(url)) seen.push(url);
+    }
+  }
+  return seen;
+}
+
+function configBlurb() {
+  const cfg = current.config || {};
+  const plugins = Array.isArray(cfg.active_plugins) ? cfg.active_plugins.join(', ') : '';
+  return [cfg.prefix && ('prefix ' + cfg.prefix), plugins && ('plugins ' + plugins)].filter(Boolean).join(' · ') || 'No gateway config fields.';
+}
+
+function findWrap(id) {
+  return current.routes.find((wrap) => wrap.id === id);
+}
+
+function changeSets() {
+  const changes = computeChanges();
+  return {
+    changes,
+    added: new Set(changes.added.map((wrap) => wrap.id)),
+    modified: new Set(changes.modified.map((item) => item.id))
+  };
+}
+
+function lastIndexOfService(name) {
+  let last = -1;
+  current.routes.forEach((wrap, index) => {
+    if (serviceOf(wrap.route.path) === name) last = index;
+  });
+  return last;
+}
+
+function moreHTML(wrap) {
+  const routeObj = wrap.route;
+  const auth = routeObj.auth || {};
+  const mand = routeObj.mandatoryRequest || {};
+  const checked = (on) => on ? ' checked' : '';
+  return '<div class="more">' +
+    '<label class="field">Servers for this endpoint only<textarea data-field="servers" spellcheck="false">' + esc((routeObj.listOfServers || []).join('\n')) + '</textarea></label>' +
+    '<div class="checks">' +
+      '<label><input data-field="authIgnore" type="checkbox"' + checked(auth.ignoreAuthenticationException) + '> Ignore authentication exception</label>' +
+      '<label><input data-field="authOn" type="checkbox"' + checked(auth.authentication) + '> Authentication</label>' +
+      '<label><input data-field="mandSet" type="checkbox"' + checked(mand.setMandatoryHeader) + '> Set mandatory header</label>' +
+      '<label><input data-field="mandInject" type="checkbox"' + checked(mand.injectMicroserviceHeader) + '> Inject microservice header</label>' +
+    '</div>' +
+    '<label class="field">Ignored headers<input data-field="ignored" spellcheck="false" value="' + esc((mand.ignoredHeader || []).join(', ')) + '"></label>' +
+    '<details><summary>Route JSON</summary><div class="grid-2"><textarea data-raw spellcheck="false">' + esc(JSON.stringify(routeObj, null, 2)) + '</textarea><div><button type="button" data-act="raw">Replace from JSON</button> <span class="raw-err"></span></div></div></details>' +
+  '</div>';
+}
+
+function rowHTML(wrap, sets) {
+  const routeObj = wrap.route;
+  const rl = routeObj.rateLimit || {};
+  const fresh = sets.added.has(wrap.id) ? ' is-new' : '';
+  const dirty = !fresh && sets.modified.has(wrap.id) ? ' is-dirty' : '';
+  const open = openIds.has(wrap.id);
+  const suffix = suffixOf(routeObj.path, selectedService);
+  const endpoint = suffix === routeObj.path
+    ? '<input data-field="path" spellcheck="false" value="' + esc(routeObj.path || '') + '">'
+    : '<input data-field="suffix" spellcheck="false" title="' + esc(routeObj.path || '') + '" value="' + esc(suffix) + '">';
+  return '<tr class="' + fresh + dirty + '" data-row="' + wrap.id + '">' +
+    '<td class="endpoint">' + endpoint + '</td>' +
+    '<td class="tiny"><input data-field="methods" spellcheck="false" value="' + esc((routeObj.methods || []).join(', ')) + '"></td>' +
+    '<td class="num"><input data-field="timeout" spellcheck="false" value="' + esc(routeObj.timeout || '') + '"></td>' +
+    '<td class="num"><input data-field="limit" inputmode="numeric" value="' + esc(rl.limit ?? '') + '"></td>' +
+    '<td class="tiny"><input data-field="interval" spellcheck="false" value="' + esc(rl.refreshInterval || '') + '"></td>' +
+    '<td class="num"><input data-field="burst" inputmode="numeric" value="' + esc(rl.burst ?? '') + '"></td>' +
+    '<td class="log"><input data-field="log" type="checkbox"' + (routeObj.log ? ' checked' : '') + ' aria-label="Log"></td>' +
+    '<td class="ops"><button type="button" data-act="toggle">' + (open ? 'Close' : 'Details') + '</button> <button type="button" data-act="clone">Copy</button> <button type="button" class="danger" data-act="del">Delete</button></td>' +
+  '</tr>' + (open ? '<tr class="detail" data-row="' + wrap.id + '"><td colspan="8">' + moreHTML(wrap) + '</td></tr>' : '');
+}
+
+function serviceHits(name, wraps, q) {
+  if (!q) return true;
+  if (name.toLowerCase().includes(q.toLowerCase())) return true;
+  return wraps.some((wrap) => matches(wrap.route, q));
+}
+
+function visibleRoutes(wraps, q) {
+  if (!q) return wraps;
+  if (selectedService.toLowerCase().includes(q.toLowerCase())) return wraps;
+  const matched = wraps.filter((wrap) => matches(wrap.route, q));
+  return matched.length ? matched : wraps;
+}
+
+function render() {
+  const groups = serviceGroups();
+  const names = [...groups.keys()];
+  const sets = changeSets();
+  const q = els.q.value.trim();
+  const visible = names.filter((name) => {
+    if (els.changedOnly.checked && !groups.get(name).some((wrap) => sets.added.has(wrap.id) || sets.modified.has(wrap.id))) return false;
+    return serviceHits(name, groups.get(name), q);
+  });
+  if (!visible.includes(selectedService)) selectedService = visible[0] || names[0] || '';
+  const sideTop = els.svcList.scrollTop;
+  const mainTop = els.main.scrollTop;
+  els.svcList.innerHTML = visible.map((name) => {
+    const wraps = groups.get(name);
+    const urls = distinctUrls(wraps);
+    const dirty = wraps.some((wrap) => sets.added.has(wrap.id) || sets.modified.has(wrap.id));
+    return '<button type="button" class="svc' + (name === selectedService ? ' active' : '') + '" data-svc="' + esc(name) + '">' +
+      (dirty ? '<span class="dot"></span>' : '') + esc(name) +
+      '<small>' + wraps.length + ' · ' + esc(urls.length > 1 ? urls.length + ' servers' : shortHost(urls[0] || '')) + '</small></button>';
+  }).join('') || '<p class="muted" style="padding:8px">No services match.</p>';
+  els.svcList.scrollTop = sideTop;
+  const wraps = groups.get(selectedService) || [];
+  els.work.hidden = !selectedService;
+  els.empty.hidden = !!selectedService;
+  if (selectedService) {
+    const shown = visibleRoutes(wraps, q);
+    const urls = distinctUrls(wraps);
+    els.svcTitle.textContent = selectedService;
+    els.svcCount.textContent = shown.length === wraps.length ? (wraps.length + ' endpoints') : ('Showing ' + shown.length + ' of ' + wraps.length);
+    if (document.activeElement !== els.urlInput) els.urlInput.value = urls.length === 1 ? urls[0] : '';
+    els.urlInput.placeholder = urls.length > 1 ? 'Several URLs — pick one below, edit it, then apply' : 'http://service.ns.svc.cluster.local';
+    els.applyUrl.textContent = 'Apply to ' + wraps.length;
+    els.urlNote.textContent = urls.length === 0
+      ? 'No server URL yet.'
+      : urls.length === 1
+        ? 'All ' + wraps.length + ' routes use this URL. Edit the host, then apply.'
+        : 'These routes do not share one URL. Applying replaces every route in this service.';
+    els.urlChoices.innerHTML = urls.length > 1
+      ? urls.map((url) => '<button type="button" class="url-chip" data-fill-url="' + esc(url) + '">' + esc(url) + '</button>').join('')
+      : '';
+    if (document.activeElement !== els.renameInput) els.renameInput.value = selectedService;
+    els.addPrefix.textContent = '/' + selectedService + '/';
+    els.rows.innerHTML = shown.map((wrap) => rowHTML(wrap, sets)).join('') || '<tr><td colspan="8" class="muted">No endpoints match.</td></tr>';
+    els.main.scrollTop = mainTop;
+  }
+  const dupes = duplicateKeys(current.routes.map((wrap) => wrap.route));
+  els.dupes.textContent = dupes.length ? ('Duplicate path + method: ' + dupes.map((key) => key.replace('|', ' ')).join('; ')) : '';
+  els.extrasDetails.hidden = Object.keys(current.extras).length === 0;
+  els.blurb.textContent = configBlurb();
+}
+
+function publish() {
+  latestText = JSON.stringify(buildExport(current), null, 4);
+  const diff = buildDiff();
+  latestDiffText = diff.text;
+  els.diff.innerHTML = diff.html;
+  if (!els.json.hidden) els.json.textContent = latestText;
+  const services = new Set(current.routes.map((wrap) => serviceOf(wrap.route.path)));
+  const n = diff.changes.added.length + diff.changes.removed.length + diff.changes.modified.length + diff.changes.config.length + diff.changes.extras.length;
+  els.stats.textContent = current.routes.length + ' routes · ' + services.size + ' services';
+  els.diffCount.textContent = String(n);
+  els.diffBtn.classList.toggle('has-changes', n > 0);
+  const sets = changeSets();
+  document.querySelectorAll('#rows tr[data-row]').forEach((row) => {
+    const id = Number(row.dataset.row);
+    row.classList.toggle('is-new', sets.added.has(id));
+    row.classList.toggle('is-dirty', !sets.added.has(id) && sets.modified.has(id));
+  });
+  document.querySelectorAll('#svcList .svc').forEach((button) => {
+    const wraps = serviceGroups().get(button.dataset.svc) || [];
+    const dirty = wraps.some((wrap) => sets.added.has(wrap.id) || sets.modified.has(wrap.id));
+    let dot = button.querySelector('.dot');
+    if (dirty && !dot) {
+      dot = document.createElement('span');
+      dot.className = 'dot';
+      button.prepend(dot);
+    } else if (!dirty && dot) dot.remove();
+  });
+  persistSoon();
+}
+
+function toast(msg, isError) {
+  els.status.textContent = msg;
+  els.status.classList.toggle('error', !!isError);
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => {
+    if (els.status.textContent === msg) els.status.textContent = '';
+  }, 2800);
+}
+
+function persistSoon() {
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(persist, 400);
+}
+
+function persist() {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ nextId, baselineState, current, selectedService }));
+  } catch {
+    if (!persistWarned) {
+      persistWarned = true;
+      toast('This config is too large to keep in the browser session. Copy it before closing the tab.', true);
+    }
+  }
+}
+
+function showTools(on) {
+  for (const id of ['q', 'diffBtn', 'copyConfigBtn', 'downloadBtn']) els[id].hidden = !on;
+}
+
+function showApp() {
+  els.app.hidden = false;
+  showTools(true);
+  if (els.loader.open) els.loader.close();
+  render();
+  publish();
+}
+
+function loadData(data, raw) {
+  nextId = 1;
+  openIds.clear();
+  current = ingest(data);
+  baselineState = cloneState(current);
+  selectedService = current.routes.length ? serviceOf(current.routes[0].route.path) : '';
+  lastRaw = raw || '';
+  els.configTa.value = JSON.stringify(current.config, null, 4);
+  els.extrasTa.value = JSON.stringify(current.extras, null, 4);
+  els.q.value = '';
+  els.changedOnly.checked = false;
+  showApp();
+  toast('Loaded ' + current.routes.length + ' routes.');
+}
+
+function explainLoad(err) {
+  els.loadError.textContent = err.message || String(err);
+}
+
+function readControl(el) {
+  return el.type === 'checkbox' ? el.checked : el.value;
+}
+
+function mustNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function applyField(id, field, value) {
+  const wrap = findWrap(id);
+  if (!wrap) return;
+  const routeObj = wrap.route;
+  const rate = () => {
+    if (!routeObj.rateLimit || typeof routeObj.rateLimit !== 'object' || Array.isArray(routeObj.rateLimit)) routeObj.rateLimit = {};
+    return routeObj.rateLimit;
+  };
+  const auth = () => {
+    if (!routeObj.auth || typeof routeObj.auth !== 'object' || Array.isArray(routeObj.auth)) routeObj.auth = {};
+    return routeObj.auth;
+  };
+  const mand = () => {
+    if (!routeObj.mandatoryRequest || typeof routeObj.mandatoryRequest !== 'object' || Array.isArray(routeObj.mandatoryRequest)) routeObj.mandatoryRequest = {};
+    return routeObj.mandatoryRequest;
+  };
+  if (field === 'path') routeObj.path = value;
+  else if (field === 'suffix') {
+    const clean = value.trim().replace(/^\/+/, '');
+    routeObj.path = '/' + selectedService + (clean ? '/' + clean : '');
+  } else if (field === 'methods') routeObj.methods = value.split(',').map((s) => s.trim()).filter(Boolean);
+  else if (field === 'timeout') {
+    if (value.trim()) routeObj.timeout = value.trim();
+    else delete routeObj.timeout;
+  } else if (field === 'log') routeObj.log = value === true || value === 'true';
+  else if (field === 'servers') routeObj.listOfServers = value.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+  else if (field === 'limit' || field === 'burst') {
+    if (value.trim() === '') delete rate()[field === 'limit' ? 'limit' : 'burst'];
+    else {
+      const n = mustNumber(value);
+      if (n == null) return;
+      rate()[field === 'limit' ? 'limit' : 'burst'] = n;
+    }
+    if (routeObj.rateLimit && !Object.keys(routeObj.rateLimit).length) delete routeObj.rateLimit;
+  } else if (field === 'interval') {
+    if (value.trim()) rate().refreshInterval = value.trim();
+    else delete rate().refreshInterval;
+    if (routeObj.rateLimit && !Object.keys(routeObj.rateLimit).length) delete routeObj.rateLimit;
+  } else if (field === 'authIgnore') auth().ignoreAuthenticationException = value;
+  else if (field === 'authOn') auth().authentication = value;
+  else if (field === 'mandSet') mand().setMandatoryHeader = value;
+  else if (field === 'mandInject') mand().injectMicroserviceHeader = value;
+  else if (field === 'ignored') {
+    const list = value.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+    if (list.length) mand().ignoredHeader = list;
+    else if (routeObj.mandatoryRequest) delete routeObj.mandatoryRequest.ignoredHeader;
+  }
+  publish();
+}
+
+function applySharedUrl() {
+  const url = els.urlInput.value.trim();
+  const wraps = serviceGroups().get(selectedService) || [];
+  if (!url) { toast('Enter a base URL first.', true); return; }
+  if (!wraps.length) return;
+  let changed = 0;
+  for (const wrap of wraps) {
+    const same = (wrap.route.listOfServers || []).length === 1 && wrap.route.listOfServers[0] === url;
+    if (same) continue;
+    wrap.route.listOfServers = [url];
+    changed += 1;
+  }
+  render();
+  publish();
+  toast(changed ? ('Base URL updated on ' + changed + ' routes.') : 'Every route already uses that URL.');
+}
+
+function applyAllFields() {
+  const wraps = serviceGroups().get(selectedService) || [];
+  const timeout = els.allTimeout.value.trim();
+  const limit = els.allLimit.value.trim();
+  const interval = els.allInterval.value.trim();
+  const burst = els.allBurst.value.trim();
+  if (!timeout && !limit && !interval && !burst) { toast('Fill timeout, limit, interval, or burst.', true); return; }
+  const limitN = limit ? mustNumber(limit) : null;
+  const burstN = burst ? mustNumber(burst) : null;
+  if (limit && limitN == null) { toast('Limit must be a number.', true); return; }
+  if (burst && burstN == null) { toast('Burst must be a number.', true); return; }
+  for (const wrap of wraps) {
+    const routeObj = wrap.route;
+    if (timeout) routeObj.timeout = timeout;
+    if (limit || interval || burst) {
+      if (!routeObj.rateLimit || typeof routeObj.rateLimit !== 'object' || Array.isArray(routeObj.rateLimit)) routeObj.rateLimit = {};
+      if (limit) routeObj.rateLimit.limit = limitN;
+      if (interval) routeObj.rateLimit.refreshInterval = interval;
+      if (burst) routeObj.rateLimit.burst = burstN;
+    }
+  }
+  els.allTimeout.value = els.allLimit.value = els.allInterval.value = els.allBurst.value = '';
+  render();
+  publish();
+  toast('Updated ' + wraps.length + ' routes.');
+}
+
+function renameService() {
+  const next = els.renameInput.value.trim().replace(/^\/+|\/+$/g, '').split('/')[0];
+  if (!next || next === selectedService) { toast('Type a different service name.', true); return; }
+  const wraps = serviceGroups().get(selectedService) || [];
+  if (serviceGroups().has(next) && !confirm(next + ' already has routes. Move these ' + wraps.length + ' into it?')) return;
+  for (const wrap of wraps) wrap.route = rewriteRoute(wrap.route, selectedService, next, '');
+  selectedService = next;
+  render();
+  publish();
+  toast('Renamed ' + wraps.length + ' routes.');
+}
+
+function addEndpoint() {
+  const suffix = els.newSuffix.value.trim().replace(/^\/+/, '');
+  if (!suffix) { toast('Type an endpoint, such as booking or v2/search.', true); return; }
+  const wraps = serviceGroups().get(selectedService) || [];
+  const template = wraps.length ? structuredClone(wraps[wraps.length - 1].route) : structuredClone(DEFAULT_ROUTE);
+  template.path = '/' + selectedService + '/' + suffix;
+  const created = { id: nextId++, route: template };
+  const at = lastIndexOfService(selectedService);
+  current.routes.splice(at + 1, 0, created);
+  els.newSuffix.value = '';
+  render();
+  publish();
+  toast('Added /' + selectedService + '/' + suffix + '.');
+}
+
+function fillCopyFromSource() {
+  const from = els.copyFrom.value;
+  const wraps = serviceGroups().get(from) || [];
+  const urls = distinctUrls(wraps);
+  els.copyUrl.value = urls[0] || '';
+  els.copyName.value = from;
+  refreshCopyPreview();
+  els.copyName.focus();
+  els.copyName.select();
+}
+
+function refreshCopyPreview() {
+  const from = els.copyFrom.value;
+  const to = els.copyName.value.trim().replace(/^\/+|\/+$/g, '').split('/')[0];
+  const url = els.copyUrl.value.trim();
+  const wraps = serviceGroups().get(from) || [];
+  const lines = [];
+  if (url) lines.push((distinctUrls(wraps)[0] || '(no url)') + '  →  ' + url);
+  wraps.slice(0, 5).forEach((wrap) => {
+    const next = to ? rewriteRoute(wrap.route, from, to, url).path : wrap.route.path;
+    lines.push(wrap.route.path + '  →  ' + next);
+  });
+  if (wraps.length > 5) lines.push('… ' + (wraps.length - 5) + ' more');
+  els.copyPreview.textContent = lines.join('\n');
+  els.copyCreate.textContent = 'Add ' + wraps.length + ' routes';
+  els.copyCreate.disabled = !to || to === from;
+  els.copyCreate.title = els.copyCreate.disabled ? 'Change the service name. To only change the URL, use Apply on the open service.' : '';
+}
+
+function openCopy() {
+  const names = [...serviceGroups().keys()];
+  els.copyFrom.replaceChildren();
+  for (const name of names) {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name + ' (' + serviceGroups().get(name).length + ')';
+    els.copyFrom.append(option);
+  }
+  els.copyFrom.value = names.includes(selectedService) ? selectedService : (names[0] || '');
+  if (!els.copyDlg.open) els.copyDlg.showModal();
+  fillCopyFromSource();
+}
+
+function createCopiedService() {
+  const from = els.copyFrom.value;
+  const to = els.copyName.value.trim().replace(/^\/+|\/+$/g, '').split('/')[0];
+  const url = els.copyUrl.value.trim();
+  if (!to || to === from) {
+    toast('Change the service name. To only change the URL, use Apply on the open service.', true);
+    return;
+  }
+  const source = serviceGroups().get(from) || [];
+  const created = source.map((wrap) => ({ id: nextId++, route: rewriteRoute(wrap.route, from, to, url) }));
+  const at = lastIndexOfService(from);
+  current.routes.splice(at + 1, 0, ...created);
+  selectedService = to;
+  els.q.value = '';
+  els.copyDlg.close();
+  render();
+  publish();
+  toast('Added ' + created.length + ' routes under ' + to + '.');
+}
+
+function applyJsonBlock(textarea, assign, label) {
+  try {
+    const parsed = JSON.parse(textarea.value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(label + ' must be a JSON object.');
+    assign(parsed);
+    render();
+    publish();
+    toast(label + ' updated.');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const area = document.createElement('textarea');
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+}
+
+function setTab(name) {
+  const showJson = name === 'json';
+  els.json.hidden = !showJson;
+  els.diff.hidden = showJson;
+  if (showJson) els.json.textContent = latestText;
+  document.querySelectorAll('.tab').forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.tab === name)));
+}
+
+function openDrawer() {
+  els.drawer.hidden = false;
+  els.backdrop.hidden = false;
+  if (!els.json.hidden) els.json.textContent = latestText;
+}
+
+function closeDrawer() {
+  els.drawer.hidden = true;
+  els.backdrop.hidden = true;
+}
+
+function gotoRoute(id) {
+  const wrap = findWrap(id);
+  if (!wrap) return;
+  selectedService = serviceOf(wrap.route.path);
+  openIds.add(id);
+  els.q.value = '';
+  closeDrawer();
+  render();
+  document.querySelector('#rows tr[data-row="' + id + '"]')?.scrollIntoView({ block: 'center' });
+}
+
+function openLoader() {
+  els.loadError.textContent = '';
+  els.paste.value = lastRaw;
+  if (!els.loader.open) els.loader.showModal();
+}
+
+function hasChanges() {
+  const changes = computeChanges();
+  return changes.config.length + changes.extras.length + changes.added.length + changes.removed.length + changes.modified.length > 0;
+}
+
+function wire() {
+  els.q.addEventListener('input', () => {
+    clearTimeout(wire._q);
+    wire._q = setTimeout(render, 80);
+  });
+  els.changedOnly.addEventListener('change', render);
+  els.svcList.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-svc]');
+    if (!button) return;
+    selectedService = button.dataset.svc;
+    render();
+  });
+  els.rows.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-act]');
+    if (!button) return;
+    const row = button.closest('[data-row]');
+    const id = Number(row.dataset.row);
+    const act = button.dataset.act;
+    if (act === 'toggle') {
+      if (openIds.has(id)) openIds.delete(id);
+      else openIds.add(id);
+      render();
+    } else if (act === 'clone') {
+      const wrap = findWrap(id);
+      const copy = structuredClone(wrap.route);
+      const suffix = suffixOf(copy.path, selectedService);
+      copy.path = '/' + selectedService + '/' + (suffix && suffix !== copy.path ? suffix : 'endpoint') + '-copy';
+      const created = { id: nextId++, route: copy };
+      const index = current.routes.findIndex((item) => item.id === id);
+      current.routes.splice(index + 1, 0, created);
+      render();
+      publish();
+    } else if (act === 'del') {
+      const wrap = findWrap(id);
+      if (!confirm('Delete ' + (wrap.route.path || 'this route') + '?')) return;
+      current.routes = current.routes.filter((item) => item.id !== id);
+      openIds.delete(id);
+      render();
+      publish();
+    } else if (act === 'raw') {
+      const area = row.querySelector('[data-raw]');
+      const err = row.querySelector('.raw-err');
+      try {
+        const parsed = JSON.parse(area.value);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Route must be a JSON object.');
+        findWrap(id).route = parsed;
+        err.textContent = '';
+        render();
+        publish();
+      } catch (error) {
+        err.textContent = error.message;
+      }
+    }
+  });
+  const onEdit = (event) => {
+    const field = event.target.dataset && event.target.dataset.field;
+    if (!field) return;
+    const row = event.target.closest('[data-row]');
+    if (!row) return;
+    applyField(Number(row.dataset.row), field, readControl(event.target));
+  };
+  els.rows.addEventListener('input', onEdit);
+  els.rows.addEventListener('change', onEdit);
+  els.urlChoices.addEventListener('click', (event) => {
+    const chip = event.target.closest('[data-fill-url]');
+    if (!chip) return;
+    els.urlInput.value = chip.dataset.fillUrl;
+    els.urlInput.focus();
+  });
+  els.applyUrl.addEventListener('click', applySharedUrl);
+  els.applyAll.addEventListener('click', applyAllFields);
+  els.renameBtn.addEventListener('click', renameService);
+  els.addEndpoint.addEventListener('click', addEndpoint);
+  els.newSuffix.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') addEndpoint();
+  });
+  els.copyBtn.addEventListener('click', openCopy);
+  els.copyFrom.addEventListener('change', fillCopyFromSource);
+  els.copyName.addEventListener('input', refreshCopyPreview);
+  els.copyUrl.addEventListener('input', refreshCopyPreview);
+  els.copyCreate.addEventListener('click', createCopiedService);
+  els.copyCancel.addEventListener('click', () => els.copyDlg.close());
+  els.configOpen.addEventListener('click', () => { if (!els.configDlg.open) els.configDlg.showModal(); });
+  els.applyConfig.addEventListener('click', () => applyJsonBlock(els.configTa, (parsed) => { current.config = parsed; }, 'Config'));
+  els.applyExtras.addEventListener('click', () => applyJsonBlock(els.extrasTa, (parsed) => {
+    current.extras = parsed;
+    const order = current.keyOrder.filter((key) => key === 'config' || key === 'routes' || Object.prototype.hasOwnProperty.call(parsed, key));
+    for (const key of Object.keys(parsed)) if (!order.includes(key)) order.push(key);
+    current.keyOrder = order;
+  }, 'Other keys'));
+  els.diff.addEventListener('click', (event) => {
+    const go = event.target.closest('[data-goto]');
+    if (!go) return;
+    gotoRoute(Number(go.dataset.goto));
+  });
+  els.diffBtn.addEventListener('click', openDrawer);
+  els.drawerClose.addEventListener('click', closeDrawer);
+  els.backdrop.addEventListener('click', closeDrawer);
+  document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => setTab(tab.dataset.tab)));
+  document.querySelectorAll('[data-copy]').forEach((button) => button.addEventListener('click', async () => {
+    const kind = button.dataset.copy;
+    await copyText(kind === 'json' ? latestText : latestDiffText);
+    toast(kind === 'json' ? 'Config copied.' : 'Diff copied.');
+  }));
+  els.downloadBtn.addEventListener('click', () => {
+    const blob = new Blob([latestText], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'krakend-config.json';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  });
+  els.replaceBtn.addEventListener('click', openLoader);
+  els.revertBtn.addEventListener('click', () => {
+    if (!baselineState) return;
+    if (hasChanges() && !confirm('Throw away edits and restore the loaded config?')) return;
+    current = cloneState(baselineState);
+    openIds.clear();
+    selectedService = current.routes.length ? serviceOf(current.routes[0].route.path) : '';
+    els.configTa.value = JSON.stringify(current.config, null, 4);
+    els.extrasTa.value = JSON.stringify(current.extras, null, 4);
+    render();
+    publish();
+    toast('Reverted to the loaded config.');
+  });
+  els.baselineBtn.addEventListener('click', () => {
+    baselineState = cloneState(current);
+    render();
+    publish();
+    toast('Current config is the new baseline.');
+  });
+  els.loadBtn.addEventListener('click', () => {
+    try {
+      if (current && hasChanges() && !confirm('Replace the current config? Uncopied edits will be lost.')) return;
+      const raw = els.paste.value;
+      loadData(parseConfig(raw), raw);
+    } catch (err) { explainLoad(err); }
+  });
+  els.sampleBtn.addEventListener('click', () => {
+    const raw = JSON.stringify(SAMPLE, null, 4);
+    els.paste.value = raw;
+    try { loadData(SAMPLE, raw); }
+    catch (err) { explainLoad(err); }
+  });
+  els.restoreBtn.addEventListener('click', () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SESSION_KEY));
+      if (!saved || !saved.current || !Array.isArray(saved.current.routes)) throw new Error('Saved session is unreadable.');
+      nextId = saved.nextId || 1;
+      baselineState = saved.baselineState;
+      current = saved.current;
+      selectedService = saved.selectedService || (current.routes[0] ? serviceOf(current.routes[0].route.path) : '');
+      els.configTa.value = JSON.stringify(current.config, null, 4);
+      els.extrasTa.value = JSON.stringify(current.extras, null, 4);
+      showApp();
+      toast('Restored the last session.');
+    } catch (err) {
+      explainLoad(err);
+      localStorage.removeItem(SESSION_KEY);
+    }
+  });
+  els.forgetBtn.addEventListener('click', () => {
+    localStorage.removeItem(SESSION_KEY);
+    els.restoreBtn.hidden = true;
+    toast('Saved session removed from this browser.');
+  });
+  els.closeLoader.addEventListener('click', () => {
+    if (current) els.loader.close();
+    else els.loadError.textContent = 'Load a config first, or try the sample.';
+  });
+  els.file.addEventListener('change', async () => {
+    const file = els.file.files && els.file.files[0];
+    if (!file) return;
+    els.paste.value = await file.text();
+    els.loadError.textContent = '';
+  });
+  els.loader.addEventListener('dragover', (event) => event.preventDefault());
+  els.loader.addEventListener('drop', async (event) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files && event.dataTransfer.files[0];
+    if (!file) return;
+    els.paste.value = await file.text();
+    els.loadError.textContent = '';
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeDrawer();
+    if (event.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName) && !event.target.closest('dialog')) {
+      event.preventDefault();
+      els.q.focus();
+    }
+  });
+  try { els.restoreBtn.hidden = !localStorage.getItem(SESSION_KEY); }
+  catch { els.restoreBtn.hidden = true; }
+}
+
+function selfCheck() {
+  const diff = fieldDiff(
+    { timeout: '140s', rateLimit: { limit: 100 } },
+    { timeout: '60s', rateLimit: { limit: 100, burst: 1 } }
+  );
+  const keys = diff.map((item) => item.key).sort().join(',');
+  if (keys !== 'rateLimit.burst,timeout') throw new Error('fieldDiff ' + keys);
+  const timeout = diff.find((item) => item.key === 'timeout');
+  if (timeout.from !== '"140s"' || timeout.to !== '"60s"') throw new Error('timeout values');
+  if (fieldDiff({ a: 1, b: [1, 2] }, { b: [1, 2], a: 1 }).length) throw new Error('key order should not matter');
+  if (fieldDiff({ log: true }, { log: false })[0].from !== 'true') throw new Error('bool');
+  if (serviceOf('/tix-flight-sabre-gds-integrator/booking') !== 'tix-flight-sabre-gds-integrator') throw new Error('service');
+  if (serviceOf('') !== '(no service)') throw new Error('empty service');
+  if (suffixOf('/tix-flight-sabre-gds-integrator/v2/search', 'tix-flight-sabre-gds-integrator') !== 'v2/search') throw new Error('suffix');
+  if (hostOf('http://flight-sabre.ns.svc.cluster.local') !== 'flight-sabre.ns.svc.cluster.local') throw new Error('host');
+  if (!matches({ path: '/tix-flight-sabre-gds-integrator/booking', methods: ['POST'], listOfServers: ['http://x'], timeout: '140s' }, 'sabre booking')) throw new Error('match');
+  if (matches({ path: '/tix-flight-sabre-gds-integrator/booking', methods: ['POST'], listOfServers: [] }, 'lion')) throw new Error('miss');
+  const rewritten = rewriteRoute(
+    { path: '/tix-flight-sabre-gds-integrator/v2/search', listOfServers: ['http://old'], timeout: '140s', rateLimit: { limit: 1000 } },
+    'tix-flight-sabre-gds-integrator',
+    'tix-flight-new',
+    'http://new'
+  );
+  if (rewritten.path !== '/tix-flight-new/v2/search' || rewritten.listOfServers[0] !== 'http://new' || rewritten.timeout !== '140s' || rewritten.rateLimit.limit !== 1000) throw new Error('rewrite');
+  const kept = rewriteRoute({ path: '/svc/booking', listOfServers: ['http://keep'] }, 'svc', 'svc-2', '');
+  if (kept.listOfServers[0] !== 'http://keep' || kept.path !== '/svc-2/booking') throw new Error('rewrite keep url');
+  const exported = buildExport({
+    keyOrder: ['config', 'routes'],
+    extras: {},
+    config: { prefix: '/krakend-gateway' },
+    routes: [{ id: 1, route: { path: '/a/b', methods: ['POST'], timeout: '140s' } }]
+  });
+  if (exported.routes[0].id || exported.routes[0].timeout !== '140s') throw new Error('export leaked id');
+  if (Object.keys(exported).join() !== 'config,routes') throw new Error('key order');
+  if (duplicateKeys([{ path: '/a', methods: ['POST'] }, { path: '/a', methods: ['POST'] }]).length !== 1) throw new Error('dupes');
+  const prevBase = baselineState;
+  const prevCur = current;
+  baselineState = {
+    keyOrder: ['config', 'routes'], extras: {}, config: { prefix: '/a' },
+    routes: [{ id: 1, route: { path: '/svc/book', methods: ['POST'], timeout: '140s' } }]
+  };
+  current = cloneState(baselineState);
+  current.routes[0].route.timeout = '60s';
+  current.routes.push({ id: 2, route: { path: '/svc/new', methods: ['POST'] } });
+  const built = buildDiff();
+  if (!built.text.includes('timeout') || !built.text.includes('/svc/new') || !built.html.includes('data-goto="1"')) throw new Error('buildDiff');
+  baselineState = prevBase;
+  current = prevCur;
+}
+
+function boot() {
+  for (const id of ['stats', 'status', 'app', 'q', 'changedOnly', 'blurb', 'svcList', 'work', 'empty', 'svcTitle', 'svcCount', 'copyBtn', 'urlInput', 'applyUrl', 'urlNote', 'urlChoices', 'allTimeout', 'allLimit', 'allInterval', 'allBurst', 'applyAll', 'renameInput', 'renameBtn', 'main', 'rows', 'addPrefix', 'newSuffix', 'addEndpoint', 'dupes', 'diffBtn', 'diffCount', 'copyConfigBtn', 'downloadBtn', 'replaceBtn', 'drawer', 'backdrop', 'diff', 'json', 'revertBtn', 'baselineBtn', 'drawerClose', 'copyDlg', 'copyFrom', 'copyName', 'copyUrl', 'copyPreview', 'copyCreate', 'copyCancel', 'configDlg', 'configOpen', 'configTa', 'applyConfig', 'extrasDetails', 'extrasTa', 'applyExtras', 'loader', 'paste', 'loadError', 'loadBtn', 'sampleBtn', 'restoreBtn', 'file', 'forgetBtn', 'closeLoader']) {
+    els[id] = document.getElementById(id);
+    if (!els[id]) throw new Error('missing #' + id);
+  }
+  wire();
+  els.loader.showModal();
+}
+
+selfCheck();
+if (typeof document !== 'undefined') boot();
+</script>
+</body>
+</html>
