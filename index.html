@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>KrakenD config editor</title>
-<meta name="description" content="Paste a KrakenD JSON config, edit a service by its base URL, or copy a service and change only the name and host.">
+<meta name="description" content="Paste a KrakenD JSON config or sync it from Inca, edit routes, and review the diff before updating an environment.">
 <style>
   :root {
     --bg: #eef1f5;
@@ -56,6 +56,8 @@
   header.top strong { font-size: 15px; letter-spacing: -.02em; }
   #stats { color: var(--muted); font-size: 13px; white-space: nowrap; }
   #q { flex: 1; max-width: 440px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: var(--bg); }
+  header.top select, .sync-box select { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--bg); }
+  #updateBtn.has-changes { background: var(--accent); color: #fff; border-color: transparent; }
   .grow { flex: 1; }
   #diffBtn.has-changes { border-color: #e7d7a8; background: #fff8e8; }
   #diffCount {
@@ -150,13 +152,24 @@
   #diff, #json { margin: 0; padding: 12px 14px; overflow: auto; flex: 1; min-height: 0; }
   #json { font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre; }
   .diff-sum { margin: 0 0 8px; font-weight: 600; }
-  #diff h3 { margin: 14px 0 6px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-  #diff article { padding: 6px 0; border-top: 1px solid var(--line); }
-  #diff button { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; text-align: left; }
-  #diff ul { margin: 4px 0 0; padding-left: 18px; }
-  #diff code, #diff ins, #diff del { font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
-  #diff ins { text-decoration: none; background: #e5f6ea; color: var(--add); }
-  #diff del { text-decoration: none; background: #fdecea; color: var(--del); }
+  .diff-view h3 { margin: 14px 0 6px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+  .diff-view article { padding: 6px 0; border-top: 1px solid var(--line); }
+  .diff-view button { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 600; text-align: left; }
+  .diff-view ul { margin: 4px 0 0; padding-left: 18px; }
+  .diff-view code, .diff-view ins, .diff-view del { font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; overflow-wrap: anywhere; }
+  .diff-view ins { text-decoration: none; background: #e5f6ea; color: var(--add); }
+  .diff-view del { text-decoration: none; background: #fdecea; color: var(--del); }
+  .sync-box { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  #credsDlg, #updateDlg { width: min(720px, 96vw); }
+  #credsDlg textarea { height: 110px; }
+  #updateDiff { max-height: min(32vh, 280px); overflow: auto; }
+  #updateJson {
+    margin: 8px 0 0; padding: 10px; background: var(--bg); border-radius: 8px;
+    max-height: min(32vh, 280px); overflow: auto;
+    font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre;
+  }
+  #updateWarn { color: var(--del); }
+  #updateWarn:empty { display: none; }
   .muted { color: var(--muted); }
   dialog { border: 1px solid var(--line); border-radius: 14px; padding: 16px; background: #fff; color: var(--ink); }
   dialog::backdrop { background: rgba(21, 32, 51, .45); }
@@ -170,8 +183,9 @@
     font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap;
   }
   .dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-  #loadError { color: var(--del); min-height: 1.2em; }
+  #loadError, #credsError { color: var(--del); min-height: 1.2em; }
   .checkline { display: flex; align-items: center; gap: 6px; }
+  #prodLine[hidden] { display: none; }
   @media (max-width: 900px) {
     body { overflow: auto; }
     .app { height: auto; grid-template-columns: 1fr; }
@@ -189,6 +203,11 @@
   <label class="sr" for="q">Search services</label>
   <input id="q" type="search" placeholder="Find a service, path, or server" title="Press / to focus" spellcheck="false" autocomplete="off" hidden>
   <span class="grow"></span>
+  <label class="sr" for="env">Environment</label>
+  <select id="env" title="Inca environment to sync or update"></select>
+  <button type="button" id="syncBtn" title="Pull the latest endpoints.json for this environment">Sync</button>
+  <button type="button" id="updateBtn" hidden title="Pull the latest config, apply your edits on top, then review the diff">Update</button>
+  <button type="button" id="credsBtn">Set credentials</button>
   <button type="button" id="diffBtn" hidden>Diff <span id="diffCount">0</span></button>
   <button type="button" class="primary" id="copyConfigBtn" data-copy="json" hidden>Copy config</button>
   <button type="button" id="downloadBtn" hidden>Download</button>
@@ -277,7 +296,7 @@
     <button type="button" id="baselineBtn">Set baseline</button>
     <button type="button" id="drawerClose">Close</button>
   </div>
-  <div id="diff"></div>
+  <div id="diff" class="diff-view"></div>
   <pre id="json" hidden></pre>
 </aside>
 <dialog id="copyDlg" aria-labelledby="copyTitle">
@@ -311,7 +330,7 @@
 </dialog>
 <dialog id="loader" aria-labelledby="loaderTitle">
   <h2 id="loaderTitle">Paste KrakenD JSON</h2>
-  <p>Drop a file or paste the config. It stays in this browser. A session is kept in localStorage on this machine.</p>
+  <p>Drop a file or paste the config. It stays in this browser. A session is kept in localStorage on this machine. Sync from Inca is below.</p>
   <textarea id="paste" spellcheck="false" placeholder='{ "config": { "prefix": "/krakend-gateway" }, "routes": [ { "path": "/service/booking", "methods": ["POST"], "listOfServers": ["http://service.local"], "timeout": "140s" } ] }'></textarea>
   <p id="loadError"></p>
   <div class="dialog-actions">
@@ -322,9 +341,54 @@
     <button type="button" id="forgetBtn">Forget saved session</button>
     <button type="button" id="closeLoader">Close</button>
   </div>
+  <div class="sync-box">
+    <p>Pull <code>endpoints.json</code> from Inca. Token and cookie are saved in this browser and sent only to Inca.</p>
+    <div class="field">Environment
+      <select id="envLoader" aria-label="Environment"></select>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="primary" id="syncFromLoader">Sync</button>
+      <button type="button" id="credsFromLoader">Set credentials</button>
+    </div>
+  </div>
+</dialog>
+<dialog id="credsDlg" aria-labelledby="credsTitle">
+  <h2 id="credsTitle">Inca credentials</h2>
+  <p id="credsNote">Paste the <code>x-consul-token</code> and the <code>Cookie</code> header from a logged-in Inca tab. They stay in localStorage on this browser. Open this page with <code>node server.mjs</code>.</p>
+  <div class="field">Consul token
+    <input id="tokenInput" type="password" spellcheck="false" autocomplete="off" aria-label="Consul token">
+  </div>
+  <div class="field" style="margin-top:8px">Cookie
+    <textarea id="cookieInput" spellcheck="false" autocomplete="off" aria-label="Cookie header" placeholder="name=value; name2=value2"></textarea>
+  </div>
+  <p id="credsError"></p>
+  <div class="dialog-actions">
+    <button type="button" class="primary" id="saveCredsBtn">Save in this browser</button>
+    <button type="button" id="clearCredsBtn">Clear</button>
+    <button type="button" id="credsCancel">Cancel</button>
+  </div>
+</dialog>
+<dialog id="updateDlg" aria-labelledby="updateTitle">
+  <h2 id="updateTitle">Update</h2>
+  <p id="updateLead"></p>
+  <div id="updateDiff" class="diff-view"></div>
+  <details open>
+    <summary>Diff JSON</summary>
+    <pre id="updateJson"></pre>
+  </details>
+  <p id="updateWarn"></p>
+  <label class="checkline" id="prodLine" hidden><input id="prodAck" type="checkbox"> This writes to production</label>
+  <div class="dialog-actions">
+    <button type="button" class="primary" id="updateConfirm">Write</button>
+    <button type="button" id="copyUpdateDiff">Copy diff JSON</button>
+    <button type="button" id="updateCancel">Cancel</button>
+  </div>
 </dialog>
 <script>
 const SESSION_KEY = 'krakend-editor-session-v1';
+const CREDS_KEY = 'krakend-editor-creds-v1';
+const ENV_KEY = 'krakend-editor-env-v1';
+const ENVS = ['development', 'gk2', 'preprod', 'production', 'sandbox', 'staging'];
 const DEFAULT_ROUTE = {
   methods: ['POST'],
   listOfServers: [],
@@ -367,6 +431,8 @@ function route(path, server, timeout, limit, burst, headers) {
 let nextId = 1;
 let baselineState = null;
 let current = null;
+let pendingWrite = null;
+let syncing = false;
 let selectedService = '';
 let latestText = '';
 let latestDiffText = '';
@@ -477,15 +543,15 @@ function routeLabel(routeObj) {
   return methods + ' ' + (routeObj.path || '(no path)');
 }
 
-function computeChanges() {
+function computeChanges(base = baselineState, edited = current) {
   const empty = { config: [], extras: [], added: [], removed: [], modified: [] };
-  if (!baselineState || !current) return empty;
-  const baseIds = new Map(baselineState.routes.map((wrap) => [wrap.id, wrap]));
-  const curIds = new Set(current.routes.map((wrap) => wrap.id));
+  if (!base || !edited) return empty;
+  const baseIds = new Map(base.routes.map((wrap) => [wrap.id, wrap]));
+  const curIds = new Set(edited.routes.map((wrap) => wrap.id));
   const added = [];
   const removed = [];
   const modified = [];
-  for (const wrap of current.routes) {
+  for (const wrap of edited.routes) {
     const prev = baseIds.get(wrap.id);
     if (!prev) added.push(wrap);
     else {
@@ -493,12 +559,12 @@ function computeChanges() {
       if (changes.length) modified.push({ id: wrap.id, route: wrap.route, changes });
     }
   }
-  for (const wrap of baselineState.routes) {
+  for (const wrap of base.routes) {
     if (!curIds.has(wrap.id)) removed.push(wrap);
   }
   return {
-    config: fieldDiff(baselineState.config, current.config),
-    extras: fieldDiff(baselineState.extras, current.extras),
+    config: fieldDiff(base.config || {}, edited.config || {}),
+    extras: fieldDiff(base.extras || {}, edited.extras || {}),
     added, removed, modified
   };
 }
@@ -516,8 +582,8 @@ function changeHTML(ch) {
   return key + '<del>' + esc(ch.from) + '</del> <ins>' + esc(ch.to) + '</ins>';
 }
 
-function buildDiff() {
-  const changes = computeChanges();
+function buildDiff(base = baselineState, edited = current, link = true) {
+  const changes = computeChanges(base, edited);
   const text = [];
   const html = [];
   const configN = changes.config.length + changes.extras.length;
@@ -540,7 +606,9 @@ function buildDiff() {
   section(
     'Added',
     changes.added.map((wrap) => routeLabel(wrap.route)),
-    changes.added.map((wrap) => '<article><button type="button" data-goto="' + wrap.id + '">' + esc(routeLabel(wrap.route)) + '</button></article>')
+    changes.added.map((wrap) => '<article>' + (link
+      ? '<button type="button" data-goto="' + wrap.id + '">' + esc(routeLabel(wrap.route)) + '</button>'
+      : esc(routeLabel(wrap.route))) + '</article>')
   );
   section(
     'Removed',
@@ -551,7 +619,9 @@ function buildDiff() {
   const modHtml = [];
   for (const item of changes.modified) {
     modLines.push(routeLabel(item.route));
-    modHtml.push('<article><button type="button" data-goto="' + item.id + '">' + esc(routeLabel(item.route)) + '</button><ul>');
+    modHtml.push('<article>' + (link
+      ? '<button type="button" data-goto="' + item.id + '">' + esc(routeLabel(item.route)) + '</button>'
+      : esc(routeLabel(item.route))) + '<ul>');
     for (const ch of item.changes) {
       modLines.push('  ' + fmtChange(ch));
       modHtml.push('<li>' + changeHTML(ch) + '</li>');
@@ -775,9 +845,10 @@ function publish() {
   if (!els.json.hidden) els.json.textContent = latestText;
   const services = new Set(current.routes.map((wrap) => serviceOf(wrap.route.path)));
   const n = diff.changes.added.length + diff.changes.removed.length + diff.changes.modified.length + diff.changes.config.length + diff.changes.extras.length;
-  els.stats.textContent = current.routes.length + ' routes · ' + services.size + ' services';
+  els.stats.textContent = current.routes.length + ' routes · ' + services.size + ' services · ' + currentEnv();
   els.diffCount.textContent = String(n);
   els.diffBtn.classList.toggle('has-changes', n > 0);
+  els.updateBtn.classList.toggle('has-changes', n > 0);
   const sets = changeSets();
   document.querySelectorAll('#rows tr[data-row]').forEach((row) => {
     const id = Number(row.dataset.row);
@@ -823,7 +894,7 @@ function persist() {
 }
 
 function showTools(on) {
-  for (const id of ['q', 'diffBtn', 'copyConfigBtn', 'downloadBtn']) els[id].hidden = !on;
+  for (const id of ['q', 'diffBtn', 'copyConfigBtn', 'downloadBtn', 'updateBtn']) els[id].hidden = !on;
 }
 
 function showApp() {
@@ -834,7 +905,7 @@ function showApp() {
   publish();
 }
 
-function loadData(data, raw) {
+function loadData(data, raw, quiet) {
   nextId = 1;
   openIds.clear();
   current = ingest(data);
@@ -846,7 +917,7 @@ function loadData(data, raw) {
   els.q.value = '';
   els.changedOnly.checked = false;
   showApp();
-  toast('Loaded ' + current.routes.length + ' routes.');
+  if (!quiet) toast('Loaded ' + current.routes.length + ' routes.');
 }
 
 function explainLoad(err) {
@@ -1113,6 +1184,378 @@ function hasChanges() {
   return changes.config.length + changes.extras.length + changes.added.length + changes.removed.length + changes.modified.length > 0;
 }
 
+function routeKey(routeObj) {
+  return (routeObj.path || '') + '|' + [...(routeObj.methods || [])].sort().join(',');
+}
+
+function setPath(obj, path, jsonValue) {
+  const parts = path.split('.');
+  let cursor = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const next = cursor[parts[i]];
+    if (!next || typeof next !== 'object' || Array.isArray(next)) cursor[parts[i]] = {};
+    cursor = cursor[parts[i]];
+  }
+  cursor[parts[parts.length - 1]] = JSON.parse(jsonValue);
+}
+
+function deletePath(obj, path) {
+  const parts = path.split('.');
+  const stack = [obj];
+  for (let i = 0; i < parts.length - 1; i++) {
+    const next = stack[stack.length - 1][parts[i]];
+    if (!next || typeof next !== 'object' || Array.isArray(next)) return;
+    stack.push(next);
+  }
+  delete stack[stack.length - 1][parts[parts.length - 1]];
+  for (let i = stack.length - 1; i > 0; i--) {
+    if (Object.keys(stack[i]).length) break;
+    delete stack[i - 1][parts[i - 1]];
+  }
+}
+
+function applyFieldChanges(base, edited, target) {
+  const out = structuredClone(target);
+  for (const change of fieldDiff(base, edited)) {
+    if (change.to === undefined) deletePath(out, change.key);
+    else setPath(out, change.key, change.to);
+  }
+  return out;
+}
+
+// ponytail: route identity is path + methods. Two routes sharing that pair collapse to one match; the other is appended.
+function rebaseState(baseline, edited, remote) {
+  const baseRoutes = baseline.routes || [];
+  const editedRoutes = edited.routes || [];
+  const remoteRoutes = remote.routes || [];
+  const editedIds = new Set(editedRoutes.map((wrap) => wrap.id));
+  const editedByOrigKey = new Map();
+  const deletedKeys = new Set();
+  for (const wrap of baseRoutes) {
+    const key = routeKey(wrap.route);
+    if (!editedIds.has(wrap.id)) deletedKeys.add(key);
+    else editedByOrigKey.set(key, editedRoutes.find((item) => item.id === wrap.id));
+  }
+  const used = new Set();
+  const routes = [];
+  for (const wrap of remoteRoutes) {
+    const key = routeKey(wrap.route);
+    if (deletedKeys.has(key)) {
+      deletedKeys.delete(key);
+      continue;
+    }
+    const editedWrap = editedByOrigKey.get(key);
+    if (editedWrap && !used.has(editedWrap.id)) {
+      const baseWrap = baseRoutes.find((item) => item.id === editedWrap.id);
+      used.add(editedWrap.id);
+      routes.push({ id: wrap.id, route: applyFieldChanges(baseWrap.route, editedWrap.route, wrap.route) });
+    } else {
+      routes.push({ id: wrap.id, route: structuredClone(wrap.route) });
+    }
+  }
+  for (const wrap of editedRoutes) {
+    if (used.has(wrap.id)) continue;
+    routes.push({ id: nextId++, route: structuredClone(wrap.route) });
+  }
+  const config = applyFieldChanges(baseline.config || {}, edited.config || {}, remote.config || {});
+  const extras = applyFieldChanges(baseline.extras || {}, edited.extras || {}, remote.extras || {});
+  const keyOrder = (remote.keyOrder || ['config', 'routes']).slice();
+  for (const key of Object.keys(extras)) {
+    if (!keyOrder.includes(key)) keyOrder.push(key);
+  }
+  for (let i = keyOrder.length - 1; i >= 0; i--) {
+    const key = keyOrder[i];
+    if (key === 'config' || key === 'routes') continue;
+    if (!Object.prototype.hasOwnProperty.call(extras, key)) keyOrder.splice(i, 1);
+  }
+  if (!keyOrder.includes('config')) keyOrder.unshift('config');
+  if (!keyOrder.includes('routes')) keyOrder.push('routes');
+  return { keyOrder, extras, config, routes };
+}
+
+function jsonValue(value) {
+  return value === undefined ? null : JSON.parse(value);
+}
+
+function diffPayload(changes) {
+  return JSON.stringify({
+    config: changes.config.map((change) => ({ key: change.key, from: jsonValue(change.from), to: jsonValue(change.to) })),
+    extras: changes.extras.map((change) => ({ key: change.key, from: jsonValue(change.from), to: jsonValue(change.to) })),
+    added: changes.added.map((wrap) => wrap.route),
+    removed: changes.removed.map((wrap) => wrap.route),
+    modified: changes.modified.map((item) => ({
+      path: item.route.path,
+      methods: item.route.methods,
+      changes: item.changes.map((change) => ({ key: change.key, from: jsonValue(change.from), to: jsonValue(change.to) }))
+    }))
+  }, null, 2);
+}
+
+function currentEnv() {
+  const value = els.env && els.env.value;
+  return ENVS.includes(value) ? value : 'staging';
+}
+
+function setEnv(value) {
+  const next = ENVS.includes(value) ? value : 'staging';
+  if (els.env) els.env.value = next;
+  if (els.envLoader) els.envLoader.value = next;
+  try { localStorage.setItem(ENV_KEY, next); } catch { /* private mode */ }
+  if (els.updateDlg && els.updateDlg.open) {
+    pendingWrite = null;
+    els.updateDlg.close();
+  }
+  if (current) publish();
+}
+
+function fillEnvSelect(select) {
+  select.replaceChildren();
+  for (const name of ENVS) {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    select.append(option);
+  }
+}
+
+function readCreds() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(CREDS_KEY));
+    if (!saved || typeof saved !== 'object') return { token: '', cookie: '' };
+    return { token: String(saved.token || ''), cookie: String(saved.cookie || '') };
+  } catch {
+    return { token: '', cookie: '' };
+  }
+}
+
+function paintCreds() {
+  const creds = readCreds();
+  const label = creds.token && creds.cookie ? 'Credentials' : 'Set credentials';
+  els.credsBtn.textContent = label;
+  if (els.credsFromLoader) els.credsFromLoader.textContent = label;
+}
+
+function writeCreds(creds) {
+  localStorage.setItem(CREDS_KEY, JSON.stringify({ token: creds.token || '', cookie: creds.cookie || '' }));
+  paintCreds();
+}
+
+function openCreds(message) {
+  const creds = readCreds();
+  if (els.updateDlg && els.updateDlg.open) {
+    pendingWrite = null;
+    els.updateDlg.close();
+  }
+  els.credsNote.textContent = message || 'Paste the x-consul-token and the Cookie header from a logged-in Inca tab. They stay in localStorage on this browser. Open this page with node server.mjs.';
+  els.tokenInput.value = '';
+  els.cookieInput.value = '';
+  els.tokenInput.placeholder = creds.token ? 'Token saved — paste only to replace' : 'x-consul-token';
+  els.cookieInput.placeholder = creds.cookie ? 'Cookie saved — paste only to replace' : 'name=value; name2=value2';
+  els.credsError.textContent = '';
+  if (!els.credsDlg.open) els.credsDlg.showModal();
+  (creds.token ? els.cookieInput : els.tokenInput).focus();
+}
+
+function saveCreds() {
+  const prev = readCreds();
+  let token = els.tokenInput.value.trim();
+  let cookie = els.cookieInput.value.trim();
+  token = token.replace(/^x-consul-token:\s*/i, '').trim();
+  cookie = cookie.replace(/^cookie:\s*/i, '').replace(/[\r\n]+/g, '').trim();
+  token = token || prev.token;
+  cookie = cookie || prev.cookie;
+  if (!token || !cookie) {
+    els.credsError.textContent = 'Both a token and a cookie are required.';
+    return;
+  }
+  if (!cookie.includes('=')) {
+    els.credsError.textContent = 'Cookie should look like name=value; name2=value2.';
+    return;
+  }
+  writeCreds({ token, cookie });
+  els.credsDlg.close();
+  toast('Credentials saved in this browser.');
+}
+
+function clearCreds() {
+  localStorage.removeItem(CREDS_KEY);
+  els.tokenInput.value = '';
+  els.cookieInput.value = '';
+  paintCreds();
+  els.credsError.textContent = 'Cleared.';
+}
+
+function kvPath(env, cas) {
+  let query = '?dc=tiket';
+  if (cas != null) query += '&cas=' + encodeURIComponent(cas);
+  return '/v1/kv/flight/' + encodeURIComponent(env) + '/properties/TIX-KRAKEND-GATEWAY/settings/endpoints.json' + query;
+}
+
+function authProblem(status, contentType, text) {
+  const html = (contentType || '').includes('text/html') || text.trim().startsWith('<');
+  if (status === 401 || html) return 'cookie';
+  if (status === 403) return 'rejected';
+  return '';
+}
+
+function decodeConsulBody(text) {
+  let body;
+  try { body = JSON.parse(text); }
+  catch { throw new Error('Inca did not return JSON.'); }
+  if (Array.isArray(body)) {
+    if (!body.length) throw new Error('Consul returned an empty list for this key.');
+    const item = body[0];
+    if (!item || item.Value == null) throw new Error('Consul key has no value.');
+    if (typeof item.ModifyIndex !== 'number') throw new Error('Consul did not return a ModifyIndex.');
+    const bytes = Uint8Array.from(atob(item.Value), (char) => char.charCodeAt(0));
+    const raw = new TextDecoder().decode(bytes);
+    return { raw, data: parseConfig(raw), modifyIndex: item.ModifyIndex };
+  }
+  if (body && typeof body === 'object' && Array.isArray(body.routes)) {
+    throw new Error('Consul did not return a ModifyIndex.');
+  }
+  throw new Error('Unexpected response from Consul.');
+}
+
+async function consul(method, path, body) {
+  const creds = readCreds();
+  if (!creds.token || !creds.cookie) {
+    openCreds('Add a Consul token and cookie before syncing.');
+    throw new Error('Missing token or cookie.');
+  }
+  if (location.protocol === 'file:') {
+    throw new Error('Open http://127.0.0.1:8787 after running node server.mjs. A file page cannot call Inca.');
+  }
+  let response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers: {
+        accept: 'application/json, text/javascript, */*; q=0.01',
+        'x-consul-token': creds.token,
+        'x-inca-cookie': creds.cookie,
+        'x-requested-with': 'XMLHttpRequest',
+        ...(body != null ? { 'content-type': 'application/json; charset=UTF-8' } : {})
+      },
+      body: body != null ? body : undefined
+    });
+  } catch {
+    throw new Error('Could not reach Inca. Run node server.mjs and open http://127.0.0.1:8787.');
+  }
+  const text = await response.text();
+  const problem = authProblem(response.status, response.headers.get('content-type'), text);
+  if (problem === 'cookie') {
+    writeCreds({ token: creds.token, cookie: '' });
+    openCreds('The cookie expired. Paste a fresh Cookie header from Inca. The token is still saved.');
+    throw new Error('Cookie expired.');
+  }
+  if (problem === 'rejected') {
+    openCreds('Inca rejected the token or cookie. Paste them again.');
+    throw new Error('Token or cookie was rejected.');
+  }
+  if (!response.ok) throw new Error('Inca returned ' + response.status + (text ? ': ' + text.slice(0, 180) : ''));
+  return text;
+}
+
+async function pullLatest(env) {
+  return decodeConsulBody(await consul('GET', kvPath(env)));
+}
+
+function setSyncing(on) {
+  syncing = on;
+  els.syncBtn.disabled = on;
+  els.syncFromLoader.disabled = on;
+  els.updateBtn.disabled = on;
+}
+
+async function syncFromServer() {
+  if (syncing) return;
+  const env = currentEnv();
+  if (current && hasChanges() && !confirm('Replace the current config with the latest from ' + env + '? Uncopied edits will be lost.')) return;
+  setSyncing(true);
+  try {
+    const pulled = await pullLatest(env);
+    loadData(pulled.data, pulled.raw, true);
+    toast('Synced ' + pulled.data.routes.length + ' routes from ' + env + '.');
+  } catch (err) {
+    toast(err.message, true);
+    if (els.loader.open) els.loadError.textContent = err.message;
+  } finally {
+    setSyncing(false);
+  }
+}
+
+async function startUpdate() {
+  if (syncing || !current || els.updateDlg.open) return;
+  const env = currentEnv();
+  setSyncing(true);
+  toast('Pulling the latest ' + env + ' config…');
+  try {
+    const pulled = await pullLatest(env);
+    const remote = ingest(pulled.data);
+    const rebased = rebaseState(baselineState, current, remote);
+    const diff = buildDiff(remote, rebased, false);
+    const changes = diff.changes;
+    const total = changes.config.length + changes.extras.length + changes.added.length + changes.removed.length + changes.modified.length;
+    if (!total) {
+      pendingWrite = null;
+      toast('No changes to write. The latest ' + env + ' config already includes your edits.');
+      return;
+    }
+    const dupes = duplicateKeys(rebased.routes.map((wrap) => wrap.route));
+    pendingWrite = {
+      env,
+      modifyIndex: pulled.modifyIndex,
+      body: JSON.stringify(buildExport(rebased), null, 4)
+    };
+    els.updateTitle.textContent = 'Update ' + env;
+    els.updateLead.textContent = 'Pulled the latest ' + env + ' config and applied your edits on top. This diff is against that latest copy. Nothing is written until you confirm.';
+    els.updateDiff.innerHTML = diff.html;
+    els.updateJson.textContent = diffPayload(changes);
+    els.updateWarn.textContent = dupes.length
+      ? ('Duplicate path + method, not writing: ' + dupes.map((key) => key.replace('|', ' ')).join('; '))
+      : '';
+    const prod = env === 'production';
+    els.prodLine.hidden = !prod;
+    els.prodAck.checked = false;
+    els.updateConfirm.disabled = prod || dupes.length > 0;
+    els.updateConfirm.textContent = 'Write to ' + env;
+    if (!els.updateDlg.open) els.updateDlg.showModal();
+  } catch (err) {
+    pendingWrite = null;
+    toast(err.message, true);
+  } finally {
+    setSyncing(false);
+  }
+}
+
+async function confirmUpdate() {
+  const pending = pendingWrite;
+  if (!pending || syncing) return;
+  if (pending.env === 'production' && !els.prodAck.checked) return;
+  setSyncing(true);
+  els.updateConfirm.disabled = true;
+  try {
+    const text = await consul('PUT', kvPath(pending.env, pending.modifyIndex), pending.body);
+    if (text.trim() === 'false') {
+      pendingWrite = null;
+      els.updateDlg.close();
+      toast('Someone else wrote ' + pending.env + ' first. Click Update again to refresh the diff.', true);
+      return;
+    }
+    if (text.trim() !== 'true') throw new Error('Unexpected write response: ' + text.slice(0, 180));
+    pendingWrite = null;
+    els.updateDlg.close();
+    loadData(parseConfig(pending.body), pending.body, true);
+    toast('Updated ' + pending.env + '.');
+  } catch (err) {
+    toast(err.message, true);
+    els.updateConfirm.disabled = pending.env === 'production' && !els.prodAck.checked;
+  } finally {
+    setSyncing(false);
+  }
+}
+
 function wire() {
   els.q.addEventListener('input', () => {
     clearTimeout(wire._q);
@@ -1226,6 +1669,29 @@ function wire() {
     URL.revokeObjectURL(link.href);
   });
   els.replaceBtn.addEventListener('click', openLoader);
+  els.env.addEventListener('change', () => setEnv(els.env.value));
+  els.envLoader.addEventListener('change', () => setEnv(els.envLoader.value));
+  els.syncBtn.addEventListener('click', syncFromServer);
+  els.syncFromLoader.addEventListener('click', syncFromServer);
+  els.credsBtn.addEventListener('click', () => openCreds());
+  els.credsFromLoader.addEventListener('click', () => openCreds());
+  els.saveCredsBtn.addEventListener('click', saveCreds);
+  els.clearCredsBtn.addEventListener('click', clearCreds);
+  els.credsCancel.addEventListener('click', () => els.credsDlg.close());
+  els.updateBtn.addEventListener('click', startUpdate);
+  els.updateCancel.addEventListener('click', () => {
+    pendingWrite = null;
+    els.updateDlg.close();
+  });
+  els.updateConfirm.addEventListener('click', confirmUpdate);
+  els.prodAck.addEventListener('change', () => {
+    const needsAck = currentEnv() === 'production' && !els.prodAck.checked;
+    els.updateConfirm.disabled = needsAck || !!els.updateWarn.textContent;
+  });
+  els.copyUpdateDiff.addEventListener('click', async () => {
+    await copyText(els.updateJson.textContent);
+    toast('Diff JSON copied.');
+  });
   els.revertBtn.addEventListener('click', () => {
     if (!baselineState) return;
     if (hasChanges() && !confirm('Throw away edits and restore the loaded config?')) return;
@@ -1356,13 +1822,77 @@ function selfCheck() {
   if (!built.text.includes('timeout') || !built.text.includes('/svc/new') || !built.html.includes('data-goto="1"')) throw new Error('buildDiff');
   baselineState = prevBase;
   current = prevCur;
+  if (authProblem(401, 'application/json', '{}') !== 'cookie') throw new Error('auth cookie');
+  if (authProblem(200, 'text/html; charset=utf-8', '<!doctype html>') !== 'cookie') throw new Error('auth html');
+  if (authProblem(403, 'application/json', 'denied') !== 'rejected') throw new Error('auth rejected');
+  if (authProblem(500, 'application/json', 'nope') !== '') throw new Error('auth other');
+  const note = '{"config":{"note":"caf\u00e9"},"routes":[]}';
+  const utf8 = new TextEncoder().encode(note);
+  let binary = '';
+  for (const byte of utf8) binary += String.fromCharCode(byte);
+  const decoded = decodeConsulBody(JSON.stringify([{ Value: btoa(binary), ModifyIndex: 7 }]));
+  if (decoded.modifyIndex !== 7 || decoded.data.config.note !== 'caf\u00e9') throw new Error('decode consul');
+  const savedNext = nextId;
+  const base = {
+    keyOrder: ['config', 'routes'], extras: {}, config: { prefix: '/a' },
+    routes: [
+      { id: 1, route: { path: '/svc/book', methods: ['POST'], timeout: '140s', rateLimit: { limit: 10 } } },
+      { id: 3, route: { path: '/svc/gone', methods: ['POST'], timeout: '140s' } },
+      { id: 4, route: { path: '/svc/keep', methods: ['POST'], timeout: '140s' } }
+    ]
+  };
+  const edited = {
+    keyOrder: ['config', 'routes'], extras: {}, config: { prefix: '/b' },
+    routes: [
+      { id: 1, route: { path: '/svc/book', methods: ['POST'], timeout: '60s', rateLimit: { limit: 10 } } },
+      { id: 2, route: { path: '/svc/new', methods: ['POST'], timeout: '140s' } },
+      { id: 4, route: { path: '/svc/keep', methods: ['POST'], timeout: '90s' } }
+    ]
+  };
+  const remote = {
+    keyOrder: ['config', 'routes'], extras: { owner: 'flight' }, config: { prefix: '/a', rate_limit: 'custom' },
+    routes: [
+      { id: 10, route: { path: '/svc/book', methods: ['POST'], timeout: '140s', rateLimit: { limit: 10, burst: 9 } } },
+      { id: 11, route: { path: '/svc/other', methods: ['POST'], timeout: '140s' } },
+      { id: 12, route: { path: '/svc/gone', methods: ['POST'], timeout: '140s' } }
+    ]
+  };
+  const merged = rebaseState(base, edited, remote);
+  const book = merged.routes.find((wrap) => wrap.route.path === '/svc/book');
+  if (!book || book.id !== 10 || book.route.timeout !== '60s' || book.route.rateLimit.burst !== 9) throw new Error('rebase book');
+  if (remote.routes[0].route.timeout !== '140s') throw new Error('rebase mutated remote');
+  if (!merged.routes.some((wrap) => wrap.route.path === '/svc/other')) throw new Error('rebase keep remote');
+  if (!merged.routes.some((wrap) => wrap.route.path === '/svc/new')) throw new Error('rebase add');
+  if (merged.routes.some((wrap) => wrap.route.path === '/svc/gone')) throw new Error('rebase delete');
+  const keptRoute = merged.routes.find((wrap) => wrap.route.path === '/svc/keep');
+  if (!keptRoute || keptRoute.route.timeout !== '90s') throw new Error('rebase resurrect');
+  if (merged.config.prefix !== '/b' || merged.config.rate_limit !== 'custom') throw new Error('rebase config');
+  if (merged.extras.owner !== 'flight' || !merged.keyOrder.includes('owner')) throw new Error('rebase extras');
+  const updateDiff = buildDiff(remote, merged, false);
+  if (updateDiff.html.includes('data-goto')) throw new Error('update diff linked');
+  const payload = JSON.parse(diffPayload(updateDiff.changes));
+  const addedPaths = payload.added.map((routeObj) => routeObj.path).sort().join(',');
+  if (addedPaths !== '/svc/keep,/svc/new') throw new Error('payload add ' + addedPaths);
+  if (payload.removed.length !== 1 || payload.removed[0].path !== '/svc/gone') throw new Error('payload del');
+  const timeoutChange = payload.modified.find((item) => item.path === '/svc/book');
+  if (!timeoutChange || !timeoutChange.changes.some((change) => change.key === 'timeout' && change.from === '140s' && change.to === '60s')) throw new Error('payload mod');
+  if (!payload.config.some((change) => change.key === 'prefix' && change.to === '/b')) throw new Error('payload config');
+  nextId = savedNext;
 }
 
 function boot() {
-  for (const id of ['stats', 'status', 'app', 'q', 'changedOnly', 'blurb', 'svcList', 'work', 'empty', 'svcTitle', 'svcCount', 'copyBtn', 'urlInput', 'applyUrl', 'urlNote', 'urlChoices', 'allTimeout', 'allLimit', 'allInterval', 'allBurst', 'applyAll', 'renameInput', 'renameBtn', 'main', 'rows', 'addPrefix', 'newSuffix', 'addEndpoint', 'dupes', 'diffBtn', 'diffCount', 'copyConfigBtn', 'downloadBtn', 'replaceBtn', 'drawer', 'backdrop', 'diff', 'json', 'revertBtn', 'baselineBtn', 'drawerClose', 'copyDlg', 'copyFrom', 'copyName', 'copyUrl', 'copyPreview', 'copyCreate', 'copyCancel', 'configDlg', 'configOpen', 'configTa', 'applyConfig', 'extrasDetails', 'extrasTa', 'applyExtras', 'loader', 'paste', 'loadError', 'loadBtn', 'sampleBtn', 'restoreBtn', 'file', 'forgetBtn', 'closeLoader']) {
+  for (const id of ['stats', 'status', 'app', 'q', 'changedOnly', 'blurb', 'svcList', 'work', 'empty', 'svcTitle', 'svcCount', 'copyBtn', 'urlInput', 'applyUrl', 'urlNote', 'urlChoices', 'allTimeout', 'allLimit', 'allInterval', 'allBurst', 'applyAll', 'renameInput', 'renameBtn', 'main', 'rows', 'addPrefix', 'newSuffix', 'addEndpoint', 'dupes', 'diffBtn', 'diffCount', 'copyConfigBtn', 'downloadBtn', 'replaceBtn', 'drawer', 'backdrop', 'diff', 'json', 'revertBtn', 'baselineBtn', 'drawerClose', 'copyDlg', 'copyFrom', 'copyName', 'copyUrl', 'copyPreview', 'copyCreate', 'copyCancel', 'configDlg', 'configOpen', 'configTa', 'applyConfig', 'extrasDetails', 'extrasTa', 'applyExtras', 'loader', 'paste', 'loadError', 'loadBtn', 'sampleBtn', 'restoreBtn', 'file', 'forgetBtn', 'closeLoader', 'env', 'syncBtn', 'updateBtn', 'credsBtn', 'envLoader', 'syncFromLoader', 'credsFromLoader', 'credsDlg', 'credsNote', 'tokenInput', 'cookieInput', 'credsError', 'saveCredsBtn', 'clearCredsBtn', 'credsCancel', 'updateDlg', 'updateTitle', 'updateLead', 'updateDiff', 'updateJson', 'updateWarn', 'prodLine', 'prodAck', 'updateConfirm', 'copyUpdateDiff', 'updateCancel']) {
     els[id] = document.getElementById(id);
     if (!els[id]) throw new Error('missing #' + id);
   }
+  fillEnvSelect(els.env);
+  fillEnvSelect(els.envLoader);
+  let savedEnv = 'staging';
+  try { savedEnv = localStorage.getItem(ENV_KEY) || 'staging'; } catch { /* private mode */ }
+  const env = ENVS.includes(savedEnv) ? savedEnv : 'staging';
+  els.env.value = env;
+  els.envLoader.value = env;
+  paintCreds();
   wire();
   els.loader.showModal();
 }
