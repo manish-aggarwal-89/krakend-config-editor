@@ -1,0 +1,19 @@
+README.md
+  s_4e17d4457c1948::t_db78decefddcd0 1-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.11",
+  "base_commit_sha": "0e34fb0a8e36bd6fbce3ff02704c4b4f20b44c35",
+  "prompts": {},
+  "sessions": {
+    "s_4e17d4457c1948": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "3b69b564-01cc-44f7-83b4-31149b5a8ee8",
+        "model": "grok-4.7"
+      },
+      "human_author": "manish-aggarwal-89 <manish.aggarwal@tiket.com>"
+    }
+  }
+}
